@@ -20,7 +20,9 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
   late BlueProvider _blueProvider;
   String wifiId = "", wifiPswd = "";
   int timeInterval = 10000;
- String receivedData = "";
+  String receivedData = "";
+  final TextEditingController _controller = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
   @override
   void initState() {
     super.initState();
@@ -71,7 +73,7 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
 
     try {
       final String jsonString = utf8.decode(data);
-       setState(() {
+      setState(() {
         receivedData = jsonString;
       });
       final Map<String, dynamic> jsonData = jsonDecode(jsonString);
@@ -166,26 +168,48 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
                       ),
                     ),
                     const Divider(),
-                     const Text(
-                        "Received Data",
-                        style: TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 10),
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.all(8),
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.grey),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: SingleChildScrollView(
-                            child: Text(receivedData,
-                                style: TextStyle(color: Colors.blue)),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        Container(
+                          width: 250,
+                          child: TextFormField(
+                            controller: _controller,
+                            focusNode: _focusNode,
+                            decoration: const InputDecoration(
+                                hintText: 'send text here...'),
                           ),
                         ),
+                        ElevatedButton(
+                            onPressed: () {
+                              listener.sendData(_controller.text);
+                              _controller.clear();
+                              _focusNode.unfocus();
+                            },
+                            child: const Icon(Icons.send))
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    const Text(
+                      "Received Data",
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 10),
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: SingleChildScrollView(
+                          child: Text(receivedData,
+                              style: TextStyle(color: Colors.blue)),
+                        ),
                       ),
+                    ),
                   ],
                 ),
               );
