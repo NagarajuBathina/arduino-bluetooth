@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../constants.dart';
+import 'constants.dart';
 
 extension CustomBuildContext on BuildContext {
   void showMessage(String message) {

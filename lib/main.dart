@@ -1,4 +1,4 @@
-import 'package:bluetooth_arduino/home.dart';
+import 'package:bluetooth_arduino/screens/home.dart';
 import 'package:bluetooth_arduino/provider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

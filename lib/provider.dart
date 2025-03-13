@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:vibration/vibration.dart';
 
 class BlueProvider with ChangeNotifier {
   final FlutterBluetoothSerial _bluetooth = FlutterBluetoothSerial.instance;
@@ -57,8 +58,7 @@ class BlueProvider with ChangeNotifier {
     if (statuses[Permission.location]!.isDenied ||
         statuses[Permission.bluetooth]!.isDenied ||
         statuses[Permission.bluetoothConnect]!.isDenied ||
-        statuses[Permission.bluetoothScan]!.isDenied ||
-        statuses[Permission.bluetoothAdvertise]!.isDenied) {
+        statuses[Permission.bluetoothScan]!.isDenied) {
       print("Necessary permissions denied.");
       return;
     }
@@ -124,6 +124,7 @@ class BlueProvider with ChangeNotifier {
   }
 
   Future<void> sendData(String data) async {
+    Vibration.vibrate(duration: 100, amplitude: 100);
     try {
       if (_isConnected) {
         // utf8.encode("START")
