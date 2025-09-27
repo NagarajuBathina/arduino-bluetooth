@@ -81,16 +81,29 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
   final List<String> _iconPath = [
     'assets/svg_icons/arrow_keys.svg',
     'assets/svg_icons/terminal.svg',
-    'assets/svg_icons/mars-rover2.svg'
+    'assets/svg_icons/mars-rover2.svg',
+    'assets/svg_icons/buttons.svg',
+    'assets/svg_icons/metrics.svg',
+    'assets/svg_icons/mic.svg'
   ];
 
   final List<String> _screenNames = [
     'Arrow Keys',
     'Terminal',
-    'Mini Mars Rover'
+    'Mini Mars Rover',
+    'Buttons',
+    'Metrics',
+    'Voice Control'
   ];
 
-  final List<Color> _bgColor = [buttonColor, limeColor, greenColor];
+  final List<Color> _bgColor = [
+    buttonColor,
+    limeColor,
+    greenColor,
+    blueColor,
+    redColor,
+    buttonColor
+  ];
 
   @override
   Widget build(BuildContext context) {
