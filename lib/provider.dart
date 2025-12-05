@@ -1,169 +1,209 @@
 import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
-import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:vibration/vibration.dart';
 
 class BlueProvider with ChangeNotifier {
-  final FlutterBluetoothSerial _bluetooth = FlutterBluetoothSerial.instance;
-
-  BluetoothState _bluetoothState = BluetoothState.UNKNOWN;
-  BluetoothConnection? _connection;
-  bool _isDiscovering = false;
+  BluetoothAdapterState _adapterState = BluetoothAdapterState.unknown;
+  bool _isScanning = false;
   bool _isConnected = false;
-  List<BluetoothDevice> _devices = [];
+
+  BluetoothDevice? _connectedDevice;
+
+  final List<ScanResult> _scanResults = [];
+
+  StreamSubscription<List<ScanResult>>? _scanSub;
+
+  StreamSubscription<BluetoothConnectionState>? _deviceStateSub;
+  StreamSubscription<List<int>>? _notifySub;
+
+  BluetoothCharacteristic? _writeChar;
+  BluetoothCharacteristic? _notifyChar;
+
   final StreamController<Uint8List> _dataStreamController =
       StreamController<Uint8List>.broadcast();
 
-  BluetoothState get bluetoothState => _bluetoothState;
-  bool get isDiscovering => _isDiscovering;
+  // Getters
+  BluetoothAdapterState get adapterState => _adapterState;
+  bool get isScanning => _isScanning;
   bool get isConnected => _isConnected;
-  List<BluetoothDevice> get devices => _devices;
+  List<BluetoothDevice> get devices =>
+      _scanResults.map((e) => e.device).toList();
   Stream<Uint8List> get onDataReceived => _dataStreamController.stream;
 
   BlueProvider() {
     initialize();
   }
 
+  // ------------------------------------------------------------
+  // INITIALIZE
+  // ------------------------------------------------------------
   Future<void> initialize() async {
-    _bluetoothState = await _bluetooth.state;
-    print(_bluetoothState);
-    notifyListeners();
-
-    _bluetooth.onStateChanged().listen((state) {
-      print(state);
-      _bluetoothState = state;
+    FlutterBluePlus.adapterState.listen((state) {
+      _adapterState = state;
       notifyListeners();
 
-      if (_bluetoothState == BluetoothState.STATE_OFF) {
-        _onConnectionClosed();
+      if (state == BluetoothAdapterState.off) {
+        _onDisconnected();
       }
     });
+
+    _adapterState = await FlutterBluePlus.adapterState.first;
+    notifyListeners();
   }
 
+  // ------------------------------------------------------------
+  // ENABLE BLUETOOTH
+  // ------------------------------------------------------------
   Future<void> enableBluetooth() async {
     await checkPermissions();
-    await _bluetooth.requestEnable();
+    await FlutterBluePlus.turnOn();
   }
 
+  // ------------------------------------------------------------
+  // PERMISSIONS
+  // ------------------------------------------------------------
   Future<void> checkPermissions() async {
-    var statuses = await [
-      Permission.location,
-      Permission.bluetooth,
-      Permission.bluetoothConnect,
+    await [
       Permission.bluetoothScan,
-      Permission.bluetoothAdvertise,
+      Permission.bluetoothConnect,
+      Permission.location,
     ].request();
-
-    if (statuses[Permission.location]!.isDenied ||
-        statuses[Permission.bluetooth]!.isDenied ||
-        statuses[Permission.bluetoothConnect]!.isDenied ||
-        statuses[Permission.bluetoothScan]!.isDenied) {
-      print("Necessary permissions denied.");
-      return;
-    }
-
-    print("All necessary permissions granted.");
   }
 
-  // Future<void> getPairedDevices() async {
-  //   _bluetooth.startDiscovery();
-  //   final permissionsStatus = await Permission.location.status;
-  //   if (permissionsStatus.isGranted) {
-  //     _devices = await _bluetooth.getBondedDevices();
-  //     notifyListeners();
-  //   } else {
-  //     // Handle the case when location permission is not granted
-  //   }
-  // }
-
-  void startDiscovery() async {
-    if (_isDiscovering) {
-      print("Discovery already in progress");
-      return;
-    }
-
-    devices.clear();
-    notifyListeners();
+  // ------------------------------------------------------------
+  // SCAN DEVICES
+  // ------------------------------------------------------------
+  Future<void> startScan() async {
+    if (_isScanning) return;
 
     await checkPermissions();
+    _scanResults.clear();
+    notifyListeners();
 
-    print("Starting device discovery...");
-    _isDiscovering = true;
+    _isScanning = true;
+    notifyListeners();
 
-    _bluetooth.startDiscovery().listen((r) {
-      devices.add(r.device);
-      notifyListeners();
-    }).onDone(() {
-      _isDiscovering = false;
+    await FlutterBluePlus.startScan();
+
+    _scanSub = FlutterBluePlus.scanResults.listen((results) {
+      _scanResults.clear();
+      _scanResults.addAll(results);
       notifyListeners();
     });
   }
 
-  void stopDiscovery() async {
-    if (!_isDiscovering) return;
-
-    _bluetooth.cancelDiscovery();
+  void stopScan() async {
+    await FlutterBluePlus.stopScan();
+    _scanSub?.cancel();
+    _isScanning = false;
+    notifyListeners();
   }
 
-  Future<void> connectToDevice(BluetoothDevice device) async {
+  // ------------------------------------------------------------
+  // CONNECT TO DEVICE
+  // ------------------------------------------------------------
+  Future<void> connectToDevice(
+    BluetoothDevice device, {
+    required License license,
+  }) async {
     try {
-      _connection = await BluetoothConnection.toAddress(device.address);
+      stopScan();
+
+      await device.connect(
+        license: license,
+        timeout: const Duration(seconds: 25),
+        autoConnect: false,
+      );
+
+      _connectedDevice = device;
       _isConnected = true;
       notifyListeners();
 
-      _connection?.input?.listen(_onDataReceived).onDone(() {
-        _onConnectionClosed();
+      _deviceStateSub =
+          device.connectionState.listen((BluetoothConnectionState state) {
+        if (state == BluetoothConnectionState.disconnected) {
+          _onDisconnected();
+        }
       });
-    } catch (error) {
-      print(error);
 
-      _isConnected = false;
-      notifyListeners();
-    }
-  }
+      final services = await device.discoverServices();
 
-  Future<void> sendData(String data) async {
-    Vibration.vibrate(duration: 100, amplitude: 100);
-    try {
-      if (_isConnected) {
-        // utf8.encode("START")
-        _connection?.output.add(Uint8List.fromList(data.codeUnits));
-        await _connection?.output.allSent;
+      // auto-pick characteristics
+      for (var s in services) {
+        for (var c in s.characteristics) {
+          if (_writeChar == null &&
+              (c.properties.write || c.properties.writeWithoutResponse)) {
+            _writeChar = c;
+          }
 
-        print(data);
+          if (_notifyChar == null &&
+              (c.properties.notify || c.properties.indicate)) {
+            _notifyChar = c;
+          }
+
+          if (_writeChar != null && _notifyChar != null) break;
+        }
+        if (_writeChar != null && _notifyChar != null) break;
       }
-    } catch (error) {
-      print(error);
+
+      if (_notifyChar != null) {
+        await _notifyChar!.setNotifyValue(true);
+        _notifySub = _notifyChar!.lastValueStream.listen((value) {
+          _dataStreamController.add(Uint8List.fromList(value));
+        });
+      }
+    } catch (e) {
+      debugPrint("Connect error: $e");
+      _onDisconnected();
     }
   }
 
-  void _onDataReceived(Uint8List data) {
-    try {
-      print('Received data: ${String.fromCharCodes(data)}');
-      // _receivedData = data;
-      // notifyListeners();
+  // ------------------------------------------------------------
+  // SEND DATA
+  // ------------------------------------------------------------
+  Future<void> sendData(String data) async {
+    if (_writeChar == null) return;
 
-      _dataStreamController.add(data);
-    } catch (error) {
-      print(error);
-    }
+    Vibration.vibrate(duration: 100);
+    final bytes = utf8.encode(data);
+
+    await _writeChar!.write(bytes, withoutResponse: false);
   }
 
-  void _onConnectionClosed() {
+  // ------------------------------------------------------------
+  // DISCONNECT
+  // ------------------------------------------------------------
+  Future<void> disconnect() async {
+    if (_connectedDevice != null) {
+      await _connectedDevice!.disconnect();
+    }
+    _onDisconnected();
+  }
+
+  void _onDisconnected() {
     _isConnected = false;
-    _isDiscovering = false;
-    _connection = null;
-    _devices.clear();
+    _connectedDevice = null;
+
+    _scanSub?.cancel();
+    _deviceStateSub?.cancel();
+    _notifySub?.cancel();
+
+    _writeChar = null;
+    _notifyChar = null;
 
     notifyListeners();
-    print('Disconnected');
   }
 
-  Future<void> disconnect() async {
-    if (_isConnected) {
-      await _connection?.close();
-      _onConnectionClosed();
-    }
+  @override
+  void dispose() {
+    _scanSub?.cancel();
+    _deviceStateSub?.cancel();
+    _notifySub?.cancel();
+    _dataStreamController.close();
+    super.dispose();
   }
 }

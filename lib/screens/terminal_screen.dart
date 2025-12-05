@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'dart:convert';
 
 import 'package:bluetooth_arduino/provider.dart';
@@ -57,7 +59,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
     setState(() {
       _isConnected = _blueProvider.isConnected;
       if (_isConnected) {
-        _deviceName = _blueProvider.devices.first.name ?? "Unknown Device";
+        _deviceName = _blueProvider.devices.first.name;
         _addSystemLine("Connected to $_deviceName");
       } else {
         _addSystemLine("No device connected");

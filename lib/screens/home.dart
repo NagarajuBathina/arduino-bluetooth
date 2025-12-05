@@ -4,8 +4,9 @@ import 'package:bluetooth_arduino/provider.dart';
 import 'package:bluetooth_arduino/screens/mini_mars_rover.dart';
 import 'package:bluetooth_arduino/screens/terminal_screen.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:in_app_update/in_app_update.dart';
 import 'package:provider/provider.dart';
 import '../app/constants.dart';
 import '../app/shared_prefs.dart';
@@ -20,7 +21,6 @@ class BluetoothScreen extends StatefulWidget {
 
 class _BluetoothScreenState extends State<BluetoothScreen> {
   late BlueProvider _blueProvider;
-  String wifiId = "", wifiPswd = "";
   int timeInterval = 10000;
   String receivedData = "";
 
@@ -46,24 +46,41 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
 
     _blueProvider = context.read<BlueProvider>();
 
+    checkForUpdate();
     _check();
+  }
+
+  Future<void> checkForUpdate() async {
+    InAppUpdate.checkForUpdate().then((info) {
+      setState(() {
+        if (info.updateAvailability == UpdateAvailability.updateAvailable) {
+          update();
+        }
+      });
+    }).catchError((e) {
+      print(e.toString());
+    });
+  }
+
+  void update() async {
+    print('updating');
+    await InAppUpdate.startFlexibleUpdate();
+    InAppUpdate.completeFlexibleUpdate().then((_) {}).catchError((e) {
+      print(e.toString());
+    });
   }
 
   void _check() async {
     final result = await SharedPrefsHelper().checkIsFirstTime();
 
-    print('!!!!!!!!!!!!!!!!!!!!!!!${result}');
     if (result) {
       await SharedPrefsHelper().saveData(initialData);
-    } else {
-      Map<String, dynamic>? data = await SharedPrefsHelper().getData();
-      print('#######################${data}');
     }
   }
 
   void connectToDevice(BluetoothDevice device) async {
     context.showLoading();
-    await _blueProvider.connectToDevice(device);
+    await _blueProvider.connectToDevice(device, license: License.free);
 
     if (!mounted) return;
     context.hideLoading();
@@ -73,9 +90,8 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
 
   @override
   void dispose() {
+    _blueProvider.startScan();
     super.dispose();
-
-    _blueProvider.stopDiscovery();
   }
 
   final List<String> _iconPath = [
@@ -112,31 +128,34 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
         appBar: AppBar(
           title: const Text("Home"),
           actions: [
-            if (listener.bluetoothState == BluetoothState.STATE_ON &&
-                !listener.isDiscovering &&
-                !listener.isConnected) ...[
-              IconButton(
-                onPressed: () => _blueProvider.startDiscovery(),
-                icon: const Icon(Icons.refresh),
-              ),
-            ] else if (!listener.isDiscovering && listener.isConnected) ...[
-              IconButton(
+            if (listener.adapterState == BluetoothAdapterState.on) ...[
+              // If currently scanning -> show a "stop" (close) button
+              if (listener.isScanning)
+                IconButton(
+                  onPressed: () => _blueProvider.stopScan(),
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Stop scan',
+                )
+              // If not scanning and not connected -> show refresh (start scan)
+              else if (!listener.isConnected)
+                IconButton(
+                  onPressed: () => _blueProvider.startScan(),
+                  icon: const Icon(Icons.refresh),
+                  tooltip: 'Start scan',
+                )
+              // If connected -> show disconnect
+              else
+                IconButton(
                   onPressed: () => _blueProvider.disconnect(),
-                  icon: const Icon(
-                    Icons.bluetooth,
-                  )),
-              // TextButton(
-              //     onPressed: () => _blueProvider.disconnect(),
-              //     child: const Text(
-              //       'Disconnect',
-              //       style: TextStyle(color: primaryColor),
-              //     ))
+                  icon: const Icon(Icons.bluetooth_disabled),
+                  tooltip: 'Disconnect',
+                ),
             ],
           ],
         ),
         body: Builder(
           builder: (context) {
-            if (listener.bluetoothState == BluetoothState.STATE_OFF) {
+            if (listener.adapterState == BluetoothAdapterState.off) {
               return Padding(
                 padding: const EdgeInsets.all(8.0),
                 child: Column(
@@ -207,7 +226,7 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
                   });
             }
 
-            if (!listener.isDiscovering && listener.devices.isEmpty) {
+            if (!listener.isScanning && listener.devices.isEmpty) {
               return const Padding(
                 padding: EdgeInsets.all(8.0),
                 child: Center(
@@ -224,7 +243,7 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
               child: Column(
                 children: [
                   Visibility(
-                    visible: listener.isDiscovering,
+                    visible: listener.isScanning,
                     child: const LinearProgressIndicator(),
                   ),
                   ListView.separated(
@@ -235,6 +254,8 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
                         const SizedBox(height: 8),
                     itemCount: listener.devices.length,
                     itemBuilder: (context, index) {
+                      final device = listener.devices[index];
+                      print(device.toString());
                       return Container(
                         decoration: BoxDecoration(
                           color: secondaryColor,
@@ -249,14 +270,16 @@ class _BluetoothScreenState extends State<BluetoothScreen> {
                           visualDensity:
                               const VisualDensity(horizontal: -1, vertical: -1),
                           title: Text(
-                            listener.devices[index].name ?? "Unknown device",
+                            device.platformName.isNotEmpty
+                                ? device.platformName
+                                : "Unknown Device",
                             style: const TextStyle(
                               color: primaryColor,
                               fontSize: 14,
                             ),
                           ),
                           subtitle: Text(
-                            listener.devices[index].address,
+                            device.remoteId.str,
                             style: const TextStyle(
                               color: primaryColor,
                               fontSize: 12,
